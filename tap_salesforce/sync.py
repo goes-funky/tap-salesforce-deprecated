@@ -25,6 +25,10 @@ def transform_bulk_data_hook(data, typ, schema):
     if data == '0.0' and 'integer' in schema.get('type', []):
         result = '0'
 
+    # Convert Salesforce's anytype to string
+    if data is not None and not isinstance(data, str) and "string" in schema["type"]:
+        result = str(data)
+
     # Salesforce Bulk API returns CSV's with empty strings for text fields.
     # When the text field is nillable and the data value is an empty string,
     # change the data so that it is None.
@@ -71,7 +75,6 @@ def resume_syncing_bulk_query(sf, catalog_entry, job_id, state, counter):
             for rec in bulk.get_batch_results(job_id, batch_id, catalog_entry):
                 counter.increment()
                 rec = transformer.transform(rec, schema)
-                rec = fix_record_anytype(rec, schema)
                 singer.write_message(
                     singer.RecordMessage(
                         stream=(
@@ -135,7 +138,6 @@ def sync_records(sf, catalog_entry, state, counter):
         counter.increment()
         with Transformer(pre_hook=transform_bulk_data_hook) as transformer:
             rec = transformer.transform(rec, schema)
-        rec = fix_record_anytype(rec, schema)
         singer.write_message(
             singer.RecordMessage(
                 stream=(
@@ -181,27 +183,3 @@ def sync_records(sf, catalog_entry, state, counter):
             catalog_entry['tap_stream_id'],
             replication_key,
             singer_utils.strftime(chunked_bookmark))
-
-def fix_record_anytype(rec, schema):
-    """Modifies a record when the schema has no 'type' element due to a SF type of 'anyType.'
-    Attempts to set the record's value for that element to an int, float, or string."""
-    def try_cast(val, coercion):
-        try:
-            return coercion(val)
-        except BaseException:
-            return val
-
-    for k, v in rec.items():
-        if schema['properties'][k].get("type") is None:
-            val = v
-            val = try_cast(v, int)
-            val = try_cast(v, float)
-            if v in ["true", "false"]:
-                val = (v == "true")
-
-            if v == "":
-                val = None
-
-            rec[k] = val
-
-    return rec

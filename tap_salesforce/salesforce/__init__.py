@@ -36,7 +36,8 @@ STRING_TYPES = set([
     'email',
     'complexvalue',  # TODO: Unverified
     'masterrecord',
-    'datacategorygroupreference'
+    'datacategorygroupreference',
+    'anyType'
 ])
 
 NUMBER_TYPES = set([
@@ -56,8 +57,6 @@ BINARY_TYPES = set([
 ])
 
 LOOSE_TYPES = set([
-    'anyType',
-
     # A calculated field's type can be any of the supported
     # formula data types (see https://developer.salesforce.com/docs/#i1435527)
     'calculated'
@@ -141,7 +140,7 @@ def field_to_property_schema(field, mdata): # pylint:disable=too-many-branches
     sf_type = field['type']
 
     if sf_type in STRING_TYPES:
-        property_schema['type'] = "string"
+        property_schema['type'] = ["null", "string"]
     elif sf_type in DATE_TYPES:
         property_schema = {"type": ["null", "string"], "format": "date-time"}
     elif sf_type == "boolean":
