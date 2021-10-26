@@ -1,47 +1,67 @@
 version: 2.1
+
 orbs:
   slack: circleci/slack@3.4.2
 
+executors:
+  docker-executor:
+    docker:
+      - image: 218546966473.dkr.ecr.us-east-1.amazonaws.com/circle-ci:stitch-tap-tester
+
 jobs:
   build:
-    docker:
-      - image: 218546966473.dkr.ecr.us-east-1.amazonaws.com/circle-ci:tap-tester-v4
+    executor: docker-executor
+    steps:
+      - run: echo 'CI done'
+  ensure_env:
+    executor: docker-executor
     steps:
       - checkout
       - run:
-          name: 'Setup virtual env'
+          name: 'Setup Virtual Env'
           command: |
             python3 -mvenv /usr/local/share/virtualenvs/tap-salesforce
             source /usr/local/share/virtualenvs/tap-salesforce/bin/activate
             pip install -U 'pip<19.2' 'setuptools<51.0.0'
             pip install .[dev]
-      - add_ssh_keys
+      - slack/notify-on-failure:
+          only_for_branches: master
+      - persist_to_workspace:
+          root: /usr/local/share/virtualenvs
+          paths:
+            - tap-salesforce
+  run_pylint:
+    executor: docker-executor
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /usr/local/share/virtualenvs
       - run:
-          name: 'pylint'
+          name: 'Run pylint'
           command: |
+            aws s3 cp s3://com-stitchdata-dev-deployment-assets/environments/tap-tester/tap_tester_sandbox dev_env.sh
+            source dev_env.sh
             source /usr/local/share/virtualenvs/tap-salesforce/bin/activate
             pip install pylint
-            pylint tap_salesforce -d missing-docstring,invalid-name,line-too-long,too-many-locals,too-few-public-methods,fixme,stop-iteration-return,no-else-return,chained-comparison,broad-except,no-else-raise
+            echo "pylint will skip the following: $PYLINT_DISABLE_LIST"
+            pylint tap_salesforce -d "$PYLINT_DISABLE_LIST,stop-iteration-return"
+  run_integration_tests:
+    parameters:
+      test_name:
+        type: string
+    executor: docker-executor
+    steps:
+      - checkout
+      - attach_workspace:
+          at: /usr/local/share/virtualenvs
       - run:
-          name: 'pylint tests'
+          name: 'Run Integration Tests'
           command: |
-            source /usr/local/share/virtualenvs/tap-tester/bin/activate
-            pip install pylint
-            pylint tests/*.py -d 'broad-except,chained-comparison,empty-docstring,fixme,invalid-name,line-too-long,missing-class-docstring,missing-function-docstring,missing-module-docstring,no-else-raise,no-else-return,too-few-public-methods,too-many-arguments,too-many-branches,too-many-lines,too-many-locals,ungrouped-imports,wrong-spelling-in-comment,wrong-spelling-in-docstring,duplicate-code,no-name-in-module,attribute-defined-outside-init,too-many-statements,cell-var-from-loop,too-many-public-methods,missing-docstring'
-      - run:
-          when: always
-          name: 'Integration Tests'
-          command: |
-            aws s3 cp s3://com-stitchdata-dev-deployment-assets/environments/tap-tester/sandbox dev_env.sh
+            aws s3 cp s3://com-stitchdata-dev-deployment-assets/environments/tap-tester/tap_tester_sandbox dev_env.sh
             source dev_env.sh
             source /usr/local/share/virtualenvs/tap-tester/bin/activate
-            run-test --tap=tap-salesforce \
-                     --target=target-stitch \
-                     --orchestrator=stitch-orchestrator \
-                     --email=harrison+sandboxtest@stitchdata.com \
-                     --password=$SANDBOX_PASSWORD \
-                     --client-id=50 \
-                     tests
+
+            run-test --tap=tap-salesforce tests/<< parameters.test_name >>
       - slack/notify-on-failure:
           only_for_branches: master
 
@@ -49,16 +69,116 @@ workflows:
   version: 2
   commit:
     jobs:
+      - ensure_env:
+          context: circleci-user
+      - run_pylint:
+          context: circleci-user
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_activate_version_messages.py"
+          test_name: "test_salesforce_activate_version_messages.py"
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_automatic_fields.py"
+          test_name: "test_salesforce_automatic_fields.py"
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_bookmarks.py"
+          test_name: "test_salesforce_bookmarks.py"
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_discovery.py"
+          test_name: "test_salesforce_discovery.py"
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_start_date.py"
+          test_name: "test_salesforce_start_date.py"
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_sync_canary.py"
+          test_name: "test_salesforce_sync_canary.py"
+          requires:
+            - ensure_env
       - build:
           context: circleci-user
+          requires:
+            - run_pylint
+            - test_salesforce_activate_version_messages.py
+            - test_salesforce_automatic_fields.py
+            - test_salesforce_bookmarks.py
+            - test_salesforce_discovery.py
+            - test_salesforce_start_date.py
+            - test_salesforce_sync_canary.py
   build_daily:
     triggers:
       - schedule:
-          cron: "0 13 * * *"
+          cron: "0 6 * * *"
           filters:
             branches:
               only:
                 - master
     jobs:
+      - ensure_env:
+          context: circleci-user
+      - run_pylint:
+          context: circleci-user
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_activate_version_messages.py"
+          test_name: "test_salesforce_activate_version_messages.py"
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_automatic_fields.py"
+          test_name: "test_salesforce_automatic_fields.py"
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_bookmarks.py"
+          test_name: "test_salesforce_bookmarks.py"
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_discovery.py"
+          test_name: "test_salesforce_discovery.py"
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_start_date.py"
+          test_name: "test_salesforce_start_date.py"
+          requires:
+            - ensure_env
+      - run_integration_tests:
+          context: circleci-user
+          name: "test_salesforce_sync_canary.py"
+          test_name: "test_salesforce_sync_canary.py"
+          requires:
+            - ensure_env
       - build:
           context: circleci-user
+          requires:
+            - run_pylint
+            - test_salesforce_activate_version_messages.py
+            - test_salesforce_automatic_fields.py
+            - test_salesforce_bookmarks.py
+            - test_salesforce_discovery.py
+            - test_salesforce_start_date.py
+            - test_salesforce_sync_canary.py

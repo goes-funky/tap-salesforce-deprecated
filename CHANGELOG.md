@@ -1,4 +1,21 @@
 # Changelog
+## 1.5.3
+  * Added a condition to make sure batches are not empty list within a given job ID
+
+## 1.5.2
+  * Forces `LightningUriEvent`, `UriEvent`, `LogoutEvent`, `ReportEvent` streams to full table replication [#123](https://github.com/singer-io/tap-salesforce/pull/123)
+
+## 1.5.1
+  * Captures `stateMessage` attribute for PK-Chunked batches that fail to process and persists it through a modified exception [#120](https://github.com/singer-io/tap-salesforce/pull/120)
+
+## 1.5.0
+  * Bumps Salesforce api from v41 to v52, this includes new streams and some permission changes on existing streams [#116](https://github.com/singer-io/tap-salesforce/pull/116)
+
+## 1.4.39
+  * Add a 30 second timeout to all requests [#114](https://github.com/singer-io/tap-salesforce/pull/114)
+
+## 1.4.38
+  * Makes timer thread a daemon thread so that when main thread exits it's ensured that the process exits [#112](https://github.com/singer-io/tap-salesforce/pull/112)
 
 ## 1.4.37
   * Remove support for FieldHistoryArchive because we don't query for it properly [#101](https://github.com/singer-io/tap-salesforce/pull/101)

@@ -78,7 +78,8 @@ UNSUPPORTED_BULK_API_SALESFORCE_OBJECTS = set(['AssetTokenEvent',
                                                'PartnerRole',
                                                'TaskPriority',
                                                'CaseStatus',
-                                               'UndecidedEventRelation'])
+                                               'UndecidedEventRelation',
+                                               'OrderStatus'])
 
 # The following objects have certain WHERE clause restrictions so we exclude them.
 QUERY_RESTRICTED_SALESFORCE_OBJECTS = set(['Announcement',
@@ -102,7 +103,13 @@ QUERY_RESTRICTED_SALESFORCE_OBJECTS = set(['Announcement',
                                            'RelationshipDomain',
                                            'FlexQueueItem',
                                            'NetworkUserHistoryRecent',
-                                           'FieldHistoryArchive',])
+                                           'FieldHistoryArchive',
+                                           'RecordActionHistory',
+                                           'FlowVersionView',
+                                           'FlowVariableView',
+                                           'AppTabMember',
+                                           'ColorDefinition',
+                                           'IconDefinition',])
 
 # The following objects are not supported by the query method being used.
 QUERY_INCOMPATIBLE_SALESFORCE_OBJECTS = set(['DataType',
@@ -159,7 +166,7 @@ def field_to_property_schema(field, mdata): # pylint:disable=too-many-branches
             "latitude": {"type": ["null", "number"]},
             "geocodeAccuracy": {"type": ["null", "string"]}
         }
-    elif sf_type == "int":
+    elif sf_type in ("int", "long"):
         property_schema['type'] = "integer"
     elif sf_type == "time":
         property_schema['type'] = "string"
@@ -223,7 +230,7 @@ class Salesforce():
         self.rest_requests_attempted = 0
         self.jobs_completed = 0
         self.login_timer = None
-        self.data_url = "{}/services/data/v41.0/{}"
+        self.data_url = "{}/services/data/v52.0/{}"
         self.pk_chunking = False
 
         # validate start_date
@@ -265,19 +272,38 @@ class Salesforce():
 
     # pylint: disable=too-many-arguments
     @backoff.on_exception(backoff.expo,
-                          requests.exceptions.ConnectionError,
+                          (requests.exceptions.ConnectionError, requests.exceptions.Timeout),
                           max_tries=10,
                           factor=2,
                           on_backoff=log_backoff_attempt)
     def _make_request(self, http_method, url, headers=None, body=None, stream=False, params=None):
-        if http_method == "GET":
-            LOGGER.info("Making %s request to %s with params: %s", http_method, url, params)
-            resp = self.session.get(url, headers=headers, stream=stream, params=params)
-        elif http_method == "POST":
-            LOGGER.info("Making %s request to %s with body %s", http_method, url, body)
-            resp = self.session.post(url, headers=headers, data=body)
-        else:
-            raise TapSalesforceException("Unsupported HTTP method")
+        # (30 seconds connect timeout, 30 seconds read timeout)
+        # 30 is shorthand for (30, 30)
+        request_timeout = 30
+        try:
+            if http_method == "GET":
+                LOGGER.info("Making %s request to %s with params: %s", http_method, url, params)
+                resp = self.session.get(url,
+                                        headers=headers,
+                                        stream=stream,
+                                        params=params,
+                                        timeout=request_timeout,)
+            elif http_method == "POST":
+                LOGGER.info("Making %s request to %s with body %s", http_method, url, body)
+                resp = self.session.post(url,
+                                         headers=headers,
+                                         data=body,
+                                         timeout=request_timeout,)
+            else:
+                raise TapSalesforceException("Unsupported HTTP method")
+        except requests.exceptions.ConnectionError as connection_err:
+            LOGGER.error('Took longer than %s seconds to connect to the server', request_timeout)
+            raise connection_err
+        except requests.exceptions.Timeout as timeout_err:
+            LOGGER.error('Took longer than %s seconds to hear from the server', request_timeout)
+            raise timeout_err
+
+
 
         try:
             resp.raise_for_status()
@@ -322,6 +348,7 @@ class Salesforce():
         finally:
             LOGGER.info("Starting new login timer")
             self.login_timer = threading.Timer(REFRESH_TOKEN_EXPIRATION_PERIOD, self.login)
+            self.login_timer.daemon = True # The timer should be a daemon thread so the process exits.
             self.login_timer.start()
 
     def describe(self, sobject=None):
