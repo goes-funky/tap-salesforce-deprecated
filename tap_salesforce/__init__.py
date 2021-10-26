@@ -259,7 +259,10 @@ def do_discover(sf):
             'stream': sobject_name,
             'tap_stream_id': sobject_name,
             'schema': schema,
-            'metadata': metadata.to_list(mdata)
+            'metadata': metadata.to_list(mdata),
+            'key_properties': key_properties,
+            'replication_key': replication_key,
+            'replication_method': 'INCREMENTAL' if replication_key else 'FULL_TABLE'
         }
 
         entries.append(entry)
