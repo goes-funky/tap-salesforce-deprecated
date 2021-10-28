@@ -102,24 +102,23 @@ def resume_syncing_bulk_query(sf, catalog_entry, job_id, state, counter):
 def sync_stream(sf, catalog_entry, state):
     stream = catalog_entry['stream']
 
-    with metrics.record_counter(stream) as counter:
-        try:
-            sync_records(sf, catalog_entry, state, counter)
-            singer.write_state(state)
-        except RequestException as ex:
-            raise Exception("{} Response: {}, (Stream: {})".format(
-                ex, ex.response.text, stream)) from ex
-        except Exception as ex:
-            if "OPERATION_TOO_LARGE: exceeded 100000 distinct who/what's" in str(ex):
-                raise SingerSyncError("OPERATION_TOO_LARGE: exceeded 100000 distinct who/what's. " +
-                                      "Consider asking your Salesforce System Administrator to provide you with the " +
-                                      "`View All Data` profile permission. (Stream: {})".format(stream)) from ex
-            raise Exception("{}, (Stream: {})".format(
-                ex, stream)) from ex
+    try:
+        count = sync_records(sf, catalog_entry, state)
+        singer.write_state(state)
+    except RequestException as ex:
+        raise Exception("{} Response: {}, (Stream: {})".format(
+            ex, ex.response.text, stream)) from ex
+    except Exception as ex:
+        if "OPERATION_TOO_LARGE: exceeded 100000 distinct who/what's" in str(ex):
+            raise SingerSyncError("OPERATION_TOO_LARGE: exceeded 100000 distinct who/what's. " +
+                                    "Consider asking your Salesforce System Administrator to provide you with the " +
+                                    "`View All Data` profile permission. (Stream: {})".format(stream)) from ex
+        raise Exception("{}, (Stream: {})".format(
+            ex, stream)) from ex
 
-        return counter
+    return count
 
-def sync_records(sf, catalog_entry, state, counter):
+def sync_records(sf, catalog_entry, state):
     chunked_bookmark = singer_utils.strptime_with_tz(sf.get_start_date(state, catalog_entry))
     stream = catalog_entry['stream']
     schema = catalog_entry['schema']
@@ -131,11 +130,11 @@ def sync_records(sf, catalog_entry, state, counter):
                                                              version=stream_version)
 
     start_time = singer_utils.now()
-
+    count = 0;
     LOGGER.info('Syncing Salesforce data for stream %s', stream)
 
     for rec in sf.query(catalog_entry, state):
-        counter.increment()
+        count += 1
         with Transformer(pre_hook=transform_bulk_data_hook) as transformer:
             rec = transformer.transform(rec, schema)
         singer.write_message(
