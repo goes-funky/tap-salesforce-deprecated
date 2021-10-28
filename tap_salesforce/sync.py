@@ -130,7 +130,7 @@ def sync_records(sf, catalog_entry, state):
                                                              version=stream_version)
 
     start_time = singer_utils.now()
-    count = 0;
+    count = 0
     LOGGER.info('Syncing Salesforce data for stream %s', stream)
 
     for rec in sf.query(catalog_entry, state):
@@ -182,3 +182,5 @@ def sync_records(sf, catalog_entry, state):
             catalog_entry['tap_stream_id'],
             replication_key,
             singer_utils.strftime(chunked_bookmark))
+    
+    return count
