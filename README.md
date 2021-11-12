@@ -1,3 +1,5 @@
+# DEPRECATED, see https://github.com/goes-funky/tap-salesforce
+
 # tap-salesforce
 
 [![PyPI version](https://badge.fury.io/py/tap-mysql.svg)](https://badge.fury.io/py/tap-salesforce)
